@@ -6,10 +6,12 @@ source:
   git_url: https://github.com/pydata/numexpr.git
   git_tag: v2.6.2
   patches:
+    - add-erf.patch
+    - nc_expm1.patch
     - setup.patch
 
 build:
-  number: 0
+  number: 1
   detect_binary_files_with_prefix: False
   ignore_prefix_files: True   [win]
   features:

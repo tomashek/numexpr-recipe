@@ -1,0 +1,28 @@
+diff --git a/numexpr/complex_functions.hpp b/numexpr/complex_functions.hpp
+index c73de60..d304ee9 100644
+--- a/numexpr/complex_functions.hpp
++++ b/numexpr/complex_functions.hpp
+@@ -155,11 +155,21 @@ nc_exp(npy_cdouble *x, npy_cdouble *r)
+     return;
+ }
+ 
++
++/*
++   More accurate around the origin:
++    expm1(complex(x,y)) ==
++       complex( exp(x)*cos(y)-1, exp(x)*sin(y)) ==
++       complex( exp(x)*(cos(y)-1) + expm1(x), exp(x)*sin(y)) ==
++       complex( -2.0*exp(x)*sin(y/2)**2 + expm1(x), exp(x)*sin(y))
++*/
+ static void
+ nc_expm1(npy_cdouble *x, npy_cdouble *r)
+ {
+-    double a = exp(x->real);
+-    r->real = a*cos(x->imag) - 1.0;
++    double am1 = expm1(x->real);
++    double a = 1.0 + am1;
++    double sh = sin(0.5*(x->imag));
++    r->real = -2.0*a*(sh*sh) + am1;
+     r->imag = a*sin(x->imag);
+     return;
+ }

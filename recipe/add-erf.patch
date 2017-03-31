@@ -1,0 +1,215 @@
+diff --git a/numexpr/expressions.py b/numexpr/expressions.py
+index 8e11dc9..67485fd 100644
+--- a/numexpr/expressions.py
++++ b/numexpr/expressions.py
+@@ -15,6 +15,8 @@ import sys
+ import threading
+ 
+ import numpy
++import math
++
+ from pkg_resources import parse_version
+ _np_version = parse_version(numpy.__version__)
+ 
+@@ -378,6 +380,8 @@ functions = {
+     'imag': func(numpy.imag, 'double', 'double'),
+     'complex': func(complex, 'complex'),
+     'conj': func(numpy.conj, 'complex'),
++    'erf': func(math.erf, 'float', 'double'),
++    'erfc': func(math.erfc, 'float', 'double'),
+ 
+     'sum': gen_reduce_axis_func('sum'),
+     'prod': gen_reduce_axis_func('prod'),
+diff --git a/numexpr/functions.hpp b/numexpr/functions.hpp
+index 54223ed..b8be529 100644
+--- a/numexpr/functions.hpp
++++ b/numexpr/functions.hpp
+@@ -34,6 +34,8 @@ FUNC_FF(FUNC_EXP_FF,     "exp_ff",      expf,   expf2,   vsExp)
+ FUNC_FF(FUNC_EXPM1_FF,   "expm1_ff",    expm1f, expm1f2, vsExpm1)
+ FUNC_FF(FUNC_ABS_FF,     "absolute_ff", fabsf,  fabsf2,  vsAbs)
+ FUNC_FF(FUNC_CONJ_FF,    "conjugate_ff",fconjf, fconjf2, vsConj)
++FUNC_FF(FUNC_ERF_FF,     "erf_ff",      erff,   erff2,   vsErf)
++FUNC_FF(FUNC_ERFC_FF,    "erfc_ff",     erfcf,  erfcf2,  vsErfc)
+ FUNC_FF(FUNC_FF_LAST,    NULL,          NULL,   NULL,    NULL)
+ #ifdef ELIDE_FUNC_FF
+ #undef ELIDE_FUNC_FF
+@@ -76,6 +78,8 @@ FUNC_DD(FUNC_EXP_DD,     "exp_dd",      exp,   vdExp)
+ FUNC_DD(FUNC_EXPM1_DD,   "expm1_dd",    expm1, vdExpm1)
+ FUNC_DD(FUNC_ABS_DD,     "absolute_dd", fabs,  vdAbs)
+ FUNC_DD(FUNC_CONJ_DD,    "conjugate_dd",fconj, vdConj)
++FUNC_DD(FUNC_ERF_DD,     "erf_dd",      erf,   vdErf)
++FUNC_DD(FUNC_ERFC_DD,    "erfc_dd",     erfc,  vdErfc)
+ FUNC_DD(FUNC_DD_LAST,    NULL,          NULL,  NULL)
+ #ifdef ELIDE_FUNC_DD
+ #undef ELIDE_FUNC_DD
+diff --git a/numexpr/necompiler.py b/numexpr/necompiler.py
+index d0b6389..df41dcd 100644
+--- a/numexpr/necompiler.py
++++ b/numexpr/necompiler.py
+@@ -61,6 +61,8 @@ vml_functions = [
+     "expm1",
+     "absolute",
+     "conjugate",
++    "erf",
++    "erfc",
+     "arctan2",
+     "fmod",
+     ]
+diff --git a/numexpr/msvc_function_stubs.hpp b/numexpr/msvc_function_stubs.hpp
+index fe8386a..40cb0a3 100644
+--- a/numexpr/msvc_function_stubs.hpp
++++ b/numexpr/msvc_function_stubs.hpp
+@@ -38,6 +38,8 @@
+ #define fabsf(x)    ((float)fabs((double)(x)))
+ #define fmodf(x, y)    ((float)fmod((double)(x), (double)(y)))
+ #define atan2f(x, y)    ((float)atan2((double)(x), (double)(y)))
++#define erff2(x)    ((float)erf((double)x))
++#define erfcf2(x)    ((float)erfc((double)x))
+ 
+ /* The next are directly called from interp_body.cpp */
+ #define powf(x, y)    ((float)pow((double)(x), (double)(y)))
+@@ -132,6 +134,14 @@ inline float atan2f2(float x, float y) {
+     return atan2f(x, y);
+ }
+ 
++inline float erff2(float x) {
++    return erff(x);
++}
++
++inline float erfcf2(float x) {
++    return erfcf(x);
++}
++
+ // Needed for allowing the internal casting in numexpr machinery for
+ // conjugate operations
+ inline float fconjf2(float x) {
+diff --git a/numexpr/missing_posix_functions.hpp b/numexpr/missing_posix_functions.hpp
+index bcbcb87..02aa98b 100644
+--- a/numexpr/missing_posix_functions.hpp
++++ b/numexpr/missing_posix_functions.hpp
+@@ -99,4 +99,63 @@ inline float atanhf(float x)
+     return (float) atanh((double)x);
+ }
+ 
++#ifdef _MSC_VER
++
++#  if _MSC_VER <= 1800
++
++inline double __erfc_pos_arg__(double x) {
++    /* constants */
++    double a1 =  0.25482959132979877;
++    double a2 = -0.28449673635083544;
++    double a3 =  1.421413740826515;
++    double a4 = -1.4531520269862082;
++    double a5 =  1.0614054311807297;
++    double p  =  0.3275911000094251;
++
++    // A&S formula 7.1.26
++    double t = 1.0/(1.0 + p*x);
++    return (((((a5*t + a4)*t) + a3)*t + a2)*t + a1)*t*exp(-x*x);
++}
++
++inline float __erfcf_pos_arg__(float x) {
++    /* constants */
++    float a1 =  0.254829592;
++    float a2 = -0.284496736;
++    float a3 =  1.421413741;
++    float a4 = -1.453152027;
++    float a5 =  1.061405429;
++    float p  =  0.3275911;
++
++    // A&S formula 7.1.26
++    float t = 1.0/(1.0 + p*x);
++    return (((((a5*t + a4)*t) + a3)*t + a2)*t + a1)*t*expf(-x*x);
++}
++
++inline double erf(double x)
++{
++    double y = 1.0 - __erfc_pos_arg__(fabs(x));
++
++    return _copysign(y, x);
++}
++
++inline float erff(float x)
++{
++    float y = 1.0 - __erfcf_pos_arg__(fabs(x));
++
++    return _copysign(y, x);
++}
++
++inline double erfc(double x)
++{
++    return (x > 0) ? __erfc_pos_arg__(x) : 2.0 - __erfc_pos_arg__(-x);
++}
++
++inline float erfcf(float x)
++{
++    return (x > 0) ? __erfcf_pos_arg__(x) : 2.0 - __erfcf_pos_arg__(-x);
++}
++
++#  endif
++#endif
++
+ #endif // NUMEXPR_MISSING_POSIX_FUNCTIONS_HPP
+diff --git a/numexpr/tests/test_numexpr.py b/numexpr/tests/test_numexpr.py
+index 7e6e27a..ce69922 100644
+--- a/numexpr/tests/test_numexpr.py
++++ b/numexpr/tests/test_numexpr.py
+@@ -26,6 +26,7 @@ from numpy import (
+ from numpy.testing import (assert_equal, assert_array_equal,
+                            assert_array_almost_equal, assert_allclose)
+ from numpy import shape, allclose, array_equal, ravel, isnan, isinf
++import math
+ 
+ import numexpr
+ from numexpr import E, NumExpr, evaluate, re_evaluate, disassemble, use_vml
+@@ -40,6 +41,8 @@ double = np.double
+ # Recommended minimum versions
+ minimum_numpy_version = "1.6"
+ 
++erf = np.vectorize(math.erf)
++erfc = np.vectorize(math.erfc)
+ 
+ class test_numexpr(TestCase):
+     """Testing with 1 thread"""
+@@ -75,6 +78,12 @@ class test_numexpr(TestCase):
+         y = func(a, b)
+         assert_array_almost_equal(x, y)
+ 
++    def test_erf_erfc(self):
++        for dtype, rtol in zip( [np.float64, np.float32], [1.0e-14, 1.0e-6]):
++            x = np.linspace(-3, 3, 61, dtype=dtype)
++            y = evaluate('erf(x) + erfc(x)')
++            assert_allclose(y, np.ones(61, dtype=dtype), rtol=rtol)
++
+     def test_reductions(self):
+         # Check that they compile OK.
+         assert_equal(disassemble(
+@@ -441,7 +450,7 @@ class test_evaluate(TestCase):
+         vml_funcs = [ "sin", "cos", "tan", "arcsin", "arccos", "arctan",
+                       "sinh", "cosh", "tanh", "arcsinh", "arccosh", "arctanh",
+                       "log", "log1p","log10", "exp", "expm1", "abs", "conj",
+-                      "arctan2", "fmod"]
++                      "arctan2", "fmod", "erf", "erfc"]
+         for func in vml_funcs:
+             strexpr = func+'(a)'
+             _, ex_uses_vml = numexpr.necompiler.getExprNames(strexpr, {})
+@@ -510,7 +519,7 @@ func1tests = []
+ for func in ['copy', 'ones_like', 'sqrt',
+              'sin', 'cos', 'tan', 'arcsin', 'arccos', 'arctan',
+              'sinh', 'cosh', 'tanh', 'arcsinh', 'arccosh', 'arctanh',
+-             'log', 'log1p', 'log10', 'exp', 'expm1', 'abs', 'conj']:
++             'log', 'log1p', 'log10', 'exp', 'expm1', 'abs', 'conj', 'erf', 'erfc']:
+     func1tests.append("a + %s(b+c)" % func)
+ tests.append(('1_ARG_FUNCS', func1tests))
+ 
+@@ -626,7 +635,8 @@ def test_expressions():
+                     for expr in section_tests:
+                         if (dtype == complex and
+                             ('<' in expr or '>' in expr or '%' in expr
+-                             or "arctan2" in expr or "fmod" in expr)):
++                             or "arctan2" in expr or "fmod" in expr
++                             or 'erf' in expr or 'erfc' in expr)):
+                             # skip complex comparisons or functions not
+                             # defined in complex domain.
+                             continue
